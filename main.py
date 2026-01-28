@@ -5,13 +5,40 @@ import re
 from supabase import create_client, Client
 
 
+# --- 1. 接続設定  ---
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
-
-# --- 1. 接続設定  ---
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
+# --- LINE設定 ---
+LINE_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
+LINE_USER_ID = os.environ.get("LINE_USER_ID")
+
+# --- ここから新見市のサイトをスクレイピング ---
 TARGET_URL = "https://www.city.niimi.okayama.jp/akurashi/customer/customer_search"
+
+def send_line_push(message):
+    """LINE Messaging APIを使用してプッシュ通知を送信する"""
+    if not LINE_TOKEN or not LINE_USER_ID:
+        print("⚠️ LINE Secretsが設定されていないため、通知をスキップします。")
+        return
+
+    url = "https://api.line.me/v2/bot/message/push"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {LINE_TOKEN}"
+    }
+    payload = {
+        "to": LINE_USER_ID,
+        "messages": [{"type": "text", "text": message}]
+    }
+    
+    try:
+        response = requests.post(url, headers=headers, json=payload)
+        if response.status_code != 200:
+            print(f"❌ LINE送信失敗: {response.text}")
+    except Exception as e:
+        print(f"❌ LINE通信エラー: {e}")
 
 def scrape_niimi_list():
     headers = {"User-Agent": "Mozilla/5.0"}
@@ -81,46 +108,46 @@ def save_to_supabase(data_list):
         if data['price'] <= 0:
             continue
 
-        # 1. まず、現在のデータベースに保存されている「前回の価格」を引いてくる
+        # 1. 既存データの確認 [cite: 302]
         existing_data = supabase.table("properties") \
             .select("price") \
             .eq("id", data['id']) \
             .execute()
 
-        # 物件がすでに存在するかチェック
+        # A. 物件がすでに存在する場合 [cite: 303]
         if existing_data.data:
             old_price = existing_data.data[0]['price']
             new_price = data['price']
-            diff = old_price - new_price # 値下がり額
+            diff = old_price - new_price 
 
-            # 2. 価格に変更があったか？
             if old_price != new_price:
-                # 価格が変わったので、最新情報を更新（upsert）
+                # 最新情報に更新し、履歴に保存 [cite: 304, 336]
                 supabase.table("properties").upsert(data).execute()
-
-                # 履歴テーブル（price_history）に古い価格を記録
                 history_record = {
                     "property_id": data['id'],
                     "price": new_price,
-                    "changed_at": "now()" # Supabase側で現在時刻をいれる設定なら
+                    "changed_at": "now()" 
                 }
-                supabase.table("price_history").insert(history_record).execute()
+                supabase.table("price_history").insert(history_record).execute() [cite: 305]
 
-                # 3. 【核心】10万円以上の値下げか判定
+                # 通知判定 [cite: 306, 337]
                 if diff >= 100000:
-                    print(f"🔥 大幅値下げ検知！: {data['title']}")
-                    print(f"   {old_price:,}円 → {new_price:,}円 (▲{diff:,}円)")
+                    msg = f"🔥 【大幅値下げ】\n{data['title']}\n{old_price:,}円 → {new_price:,}円 (▲{diff:,}円)\n{data['url']}"
+                    send_line_push(msg)
                 else:
-                    print(f"✨ 価格変更: {data['title']} ({old_price:,}円 → {new_price:,}円)")
+                    msg = f"✨ 【価格変更】\n{data['title']}\n{old_price:,}円 → {new_price:,}円"
+                    send_line_push(msg) [cite: 338]
             else:
-                # 価格が変わっていないなら、生存確認（チェック時刻）だけ更新
-                # （今のテーブル設計だとupsertしちゃうのが一番楽です）
+                # 価格変更なし。生存確認として更新 
                 supabase.table("properties").upsert(data).execute()
         
+        # B. 新着物件の場合 [cite: 307, 339]
         else:
-            # 新着物件の場合
-            supabase.table("properties").upsert(data).execute()
-            print(f"🆕 新着物件！: {data['title']} / {data['price']:,}円")
+            supabase.table("properties").upsert(data).execute() [cite: 339]
+            # 新着通知を送信
+            msg = f"🆕 【新着物件！】\n{data['title']}\n価格: {data['price']:,}円\n{data['url']}"
+            print(msg) [cite: 339]
+            send_line_push(msg) # ここでLINE通知
 
 if __name__ == "__main__":
     print(f"--- 新見市公式：データ同期開始 ---")
