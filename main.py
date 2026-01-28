@@ -58,8 +58,8 @@ def scrape_niimi_list():
             property_id = id_dt.find_next_sibling('dd').get_text(strip=True) if id_dt else None
             if not property_id: continue
 
-            # 2. 販売価格があるかチェック（賃料しかない物件は無視する）
-            price_dt = card.find('dt', string='販売価格') # 完全一致で「販売価格」を探す
+            # 2. 販売価格があるかチェック
+            price_dt = card.find('dt', string='販売価格')
             if not price_dt:
                 print(f"スキップ：登録番号{property_id} は賃貸物件のようです。")
                 continue
@@ -71,7 +71,6 @@ def scrape_niimi_list():
             price_val = 0
             if raw_number_match:
                 raw_number = float(raw_number_match.group(1).replace(',', ''))
-                # 単位に応じた計算(万と千のみ)
                 if "万" in price_text:
                     price_val = int(raw_number * 10000)
                 elif "千" in price_text:
@@ -83,11 +82,11 @@ def scrape_niimi_list():
             loc_dt = card.find('dt', string=re.compile('所在地'))
             location = loc_dt.find_next_sibling('dd').get_text(strip=True) if loc_dt else "新見市"
 
-            # 5. 詳細URL (「詳しく見る」ボタンのリンク)
+            # 5. 詳細URL
             link_tag = card.find('a', string=re.compile('詳しく見る'))
             detail_url = link_tag['href'] if link_tag else TARGET_URL
 
-            # 6. タイトルの生成 (登録番号と所在地を組み合わせる)
+            # 6. タイトルの生成
             title = f"登録番号{property_id}（{location}）"
 
             results.append({
@@ -108,46 +107,46 @@ def save_to_supabase(data_list):
         if data['price'] <= 0:
             continue
 
-        # 1. 既存データの確認 [cite: 302]
+        # 1. 既存データの確認
         existing_data = supabase.table("properties") \
             .select("price") \
             .eq("id", data['id']) \
             .execute()
 
-        # A. 物件がすでに存在する場合 [cite: 303]
+        # A. 物件がすでに存在する場合
         if existing_data.data:
             old_price = existing_data.data[0]['price']
             new_price = data['price']
             diff = old_price - new_price 
 
             if old_price != new_price:
-                # 最新情報に更新し、履歴に保存 [cite: 304, 336]
+                # 最新情報に更新し、履歴に保存
                 supabase.table("properties").upsert(data).execute()
                 history_record = {
                     "property_id": data['id'],
                     "price": new_price,
-                    "changed_at": "now()" 
+                    "changed_at": "now()"
                 }
-                supabase.table("price_history").insert(history_record).execute() [cite: 305]
+                supabase.table("price_history").insert(history_record).execute()
 
-                # 通知判定 [cite: 306, 337]
+                # 通知判定
                 if diff >= 100000:
                     msg = f"🔥 【大幅値下げ】\n{data['title']}\n{old_price:,}円 → {new_price:,}円 (▲{diff:,}円)\n{data['url']}"
                     send_line_push(msg)
                 else:
                     msg = f"✨ 【価格変更】\n{data['title']}\n{old_price:,}円 → {new_price:,}円"
-                    send_line_push(msg) [cite: 338]
+                    send_line_push(msg) 
             else:
-                # 価格変更なし。生存確認として更新 
+                # 価格変更なし。生存確認として更新
                 supabase.table("properties").upsert(data).execute()
         
-        # B. 新着物件の場合 [cite: 307, 339]
+        # B. 新着物件の場合
         else:
-            supabase.table("properties").upsert(data).execute() [cite: 339]
+            supabase.table("properties").upsert(data).execute() 
             # 新着通知を送信
             msg = f"🆕 【新着物件！】\n{data['title']}\n価格: {data['price']:,}円\n{data['url']}"
-            print(msg) [cite: 339]
-            send_line_push(msg) # ここでLINE通知
+            print(msg) 
+            send_line_push(msg)
 
 if __name__ == "__main__":
     print(f"--- 新見市公式：データ同期開始 ---")
