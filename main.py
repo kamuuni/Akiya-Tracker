@@ -1,9 +1,14 @@
+import os
 import requests
 from bs4 import BeautifulSoup
 import re
 from supabase import create_client, Client
 
-# --- 1. 接続設定 (自分のものに書き換えてください) ---
+
+SUPABASE_URL = os.environ.get("SUPABASE_URL")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+
+# --- 1. 接続設定  ---
 SUPABASE_URL = "SUPABASE_URL"
 SUPABASE_KEY = "SUPABASE_KEY"
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -16,20 +21,19 @@ def scrape_niimi_list():
     response.encoding = response.apparent_encoding
     soup = BeautifulSoup(response.text, 'html.parser')
 
-    # 物件の塊（カード）をすべて取得
-    # 送ってくれたHTMLによると、各物件は class="p-bukken" の中にあります
+    # 物件をすべて取得
     property_cards = soup.select('.p-bukken')
     
     results = []
 
     for card in property_cards:
         try:
-            # 1. 登録番号の取得（これは共通）
+            # 1. 登録番号の取得
             id_dt = card.find('dt', string=re.compile('登録番号'))
             property_id = id_dt.find_next_sibling('dd').get_text(strip=True) if id_dt else None
             if not property_id: continue
 
-            # 2. 「販売価格」があるかチェック（「賃料」しかない物件は無視する）
+            # 2. 販売価格があるかチェック（賃料しかない物件は無視する）
             price_dt = card.find('dt', string='販売価格') # 完全一致で「販売価格」を探す
             if not price_dt:
                 print(f"スキップ：登録番号{property_id} は賃貸物件のようです。")
@@ -37,12 +41,12 @@ def scrape_niimi_list():
 
             price_text = price_dt.find_next_sibling('dd').get_text(strip=True)
             
-            # 3. 価格の数値化（「万」と「千」の両方に対応）
+            # 3. 価格の数値化
             raw_number_match = re.search(r'([\d,.]+)', price_text)
             price_val = 0
             if raw_number_match:
                 raw_number = float(raw_number_match.group(1).replace(',', ''))
-                # 単位に応じた計算
+                # 単位に応じた計算(万と千のみ)
                 if "万" in price_text:
                     price_val = int(raw_number * 10000)
                 elif "千" in price_text:
