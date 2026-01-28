@@ -9,8 +9,6 @@ SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 
 # --- 1. 接続設定  ---
-SUPABASE_URL = "SUPABASE_URL"
-SUPABASE_KEY = "SUPABASE_KEY"
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 TARGET_URL = "https://www.city.niimi.okayama.jp/akurashi/customer/customer_search"
